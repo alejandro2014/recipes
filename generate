@@ -1,0 +1,4 @@
+#!/bin/bash
+for recipe in `ls *.md | cut -f 1 -d "."`; do
+	pandoc ${recipe}.md -s -o ./html/${recipe}.html
+done
