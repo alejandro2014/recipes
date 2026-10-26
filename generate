@@ -1,4 +1,5 @@
 #!/bin/bash
-for recipe in `ls *.md | cut -f 1 -d "."`; do
-	pandoc ${recipe}.md -s -o ./html/${recipe}.html
+mkdir -p html
+for recipe in `ls data/*.md | xargs -n 1 basename | cut -f 1 -d "."`; do
+	pandoc data/${recipe}.md -s --resource-path=data --embed-resources -o ./html/${recipe}.html
 done

@@ -1,0 +1,17 @@
+{
+  "Lunes": {
+    "Comida": "bizcocho_limon"
+  },
+  "Martes": {
+    "Comida": "flan_huevo"
+  },
+  "Miércoles": {
+    "Comida": "magdalenas"
+  },
+  "Jueves": {
+    "Comida": "tarta_queso_chocolate_blanco"
+  },
+  "Viernes": {
+    "Comida": "tiramisu"
+  }
+}

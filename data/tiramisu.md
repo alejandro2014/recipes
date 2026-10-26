@@ -1,18 +1,23 @@
+---
+categoria: "Postre"
+---
+
 Tiramisú
 ========
 
-![](../images/tiramisu.jpg)
+![](images/tiramisu.jpg)
 
 Ingredientes
 ------------
 
-* 300g bizcochos tipo *savoiardi*
-* 80g azúcar
-* 250g mascarpone
+* 300 g de bizcochos tipo *savoiardi*
+* 80 g de azúcar
+* 250 g de mascarpone
 * 4 huevos
-* Cacao amargo
-* Café soluble
-* Ron o whisky
+* 20 g de cacao en polvo sin azúcar
+* 300 ml de agua
+* 15 g de café soluble
+* 30 ml de ron o whisky (al gusto)
 
 Preparación
 -----------
@@ -23,7 +28,7 @@ Preparación
 
 3. Mezclar las claras con el resto de ingredientes del paso 1, utilizar movimientos envolventes con una espátula para que la crema de mascarpone no se baje.
 
-4. Echar en un bol el agua y añadir café. El caé tiene que quedar concentrado. Añadir también un chorro de alcohol al gusto.
+4. Echar en un bol el agua y añadir el café. El café tiene que quedar concentrado. Añadir también el alcohol.
 
 5. El tiramisú se compondrá añadiendo capas en una bandeja de horno rectangular mediana. La primera capa es de savoiardis empapados de la mezcla de café. La segunda capa es la mitad de la crema de mascarpone. La tercera capa es una capa de cacao. Repetir estas tres capas en el mismo orden.
 
@@ -36,4 +41,4 @@ Trucos
 
 * Hay que encontrar el punto justo de mojar los bizcochos en el café. Personalmente me gusta empapado pero no demasiado para que no quede el tiramisú demasiado blando. Tampoco muy seco para que pierda sabor a café.
 
-* Se le puede dar un toque interesante al tiramisú fundiendo 100g de chocolate negro y echándolo sobre la primera capa de bizcocho, antes de la capa de crema. Esperar a que el chocolate se enfríe antes de echar la otra capa, pues no queremos que el huevo se cocine.
+* Se le puede dar un toque interesante al tiramisú fundiendo 100 g de chocolate negro y echándolo sobre la primera capa de bizcocho, antes de la capa de crema. Esperar a que el chocolate se enfríe antes de echar la otra capa, pues no queremos que el huevo se cocine.
