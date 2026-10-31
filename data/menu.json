@@ -1,9 +1,11 @@
 {
   "Lunes": {
-    "Comida": "bizcocho_limon"
+    "Comida": "bizcocho_limon",
+    "Cena": "albondigas_salsa"
   },
   "Martes": {
-    "Comida": "flan_huevo"
+    "Comida": "flan_huevo",
+    "Cena": "crema_puerros"
   },
   "Miércoles": {
     "Comida": "magdalenas"

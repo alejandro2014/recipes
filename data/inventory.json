@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Carne guisar",
+    "kind": "",
+    "quantity": "750 g",
+    "desired": ""
+  },
+  {
+    "name": "Pollo",
+    "kind": "Cuartos traseros",
+    "quantity": "6",
+    "desired": "6"
+  }
+]

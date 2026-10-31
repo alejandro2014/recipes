@@ -3,10 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from recipe_manager.inventory import Inventory
 from recipe_manager.model import Recipe, parse, serialize
 from recipe_manager.packs import PackSizes
 from recipe_manager.planner import WeeklyMenu
-from recipe_manager.shopping import ingredients, parse_size, shopping_list
+from recipe_manager.shopping import ingredients, parse_size, shopping_list, use_stock
 from recipe_manager.storage import DEFAULT_DATA_DIR, RecipeExistsError, RecipeRepository, slugify
 
 
@@ -104,6 +105,49 @@ class WeeklyMenuTest(unittest.TestCase):
         self.assertEqual(reloaded.get("Lunes", "Comida"), "flan_huevo")
         self.assertIsNone(reloaded.get("Martes", "Cena"))
 
+    def test_fill_uses_the_food_at_home_first(self):
+        menu = WeeklyMenu(self.dir)
+        recipes = {
+            "lentejas": Recipe("Lentejas", ["300 g de lentejas", "1 cebolla"], category="Primer plato"),
+            "pollo": Recipe("Pollo", ["2 muslos de pollo", "Sal"], category="Segundo plato"),
+            "tortilla": Recipe("Tortilla", ["4 huevos", "1 cebolla"], category="Plato único"),
+        }
+        stock = [("pollo", "muslo", "2", ""), ("sal", "", "", ""), ("huevo", "", "2", ""), ("cebolla", "", "1", "")]
+        self.assertEqual(menu.fill(recipes, stock), 3)
+        # The only onion goes to the tortilla, which uses more of what is at home
+        self.assertEqual(menu.slugs(), ["pollo", "tortilla", "lentejas"])
+        self.assertEqual(menu.get("Lunes", "Comida"), "pollo")
+        self.assertEqual(menu.get("Lunes", "Cena"), "tortilla")
+        self.assertEqual(menu.get("Martes", "Comida"), "lentejas")
+
+    def test_fill_keeps_the_menu_and_counts_what_it_uses(self):
+        menu = WeeklyMenu(self.dir)
+        menu.set("Lunes", "Cena", "tortilla")
+        menu.set("Martes", "Cena", "borrada")
+        recipes = {
+            "pisto": Recipe("Pisto", ["1 calabacín"]),
+            "revuelto": Recipe("Revuelto", ["2 huevos"]),
+            "tortilla": Recipe("Tortilla", ["4 huevos"]),
+        }
+        self.assertEqual(menu.fill(recipes, [("huevo", "", "4", ""), ("calabacín", "", "1", "")]), 2)
+        self.assertEqual(menu.get("Lunes", "Cena"), "tortilla")
+        # The eggs are used up by the tortilla, so the pisto goes first
+        self.assertEqual(menu.get("Lunes", "Comida"), "pisto")
+        self.assertEqual(menu.get("Martes", "Comida"), "revuelto")
+        self.assertEqual(menu.fill(recipes, []), 0)
+
+    def test_fill_places_recipes_by_meal(self):
+        menu = WeeklyMenu(self.dir)
+        recipes = {
+            "flan": Recipe("Flan", ["6 huevos"], category="Postre"),
+            "tostada": Recipe("Tostada", ["1 rebanada de pan"], category="Desayuno"),
+            "lentejas": Recipe("Lentejas", ["300 g de lentejas"]),
+        }
+        self.assertEqual(menu.fill(recipes, [("huevo", "", "6", "")]), 2)
+        self.assertEqual(menu.get("Lunes", "Desayuno"), "tostada")
+        self.assertEqual(menu.get("Lunes", "Comida"), "lentejas")
+        self.assertNotIn("flan", menu.slugs())
+
     def test_rename_and_remove_recipe(self):
         menu = WeeklyMenu(self.dir)
         menu.set("Lunes", "Comida", "flan_huevo")
@@ -144,6 +188,98 @@ class ShoppingListTest(unittest.TestCase):
             ],
         )
 
+    def test_stock_is_subtracted(self):
+        flan = Recipe("Flan", ["750 ml de leche", "125 g de azúcar", "6 huevos", "2 limones", "Sal", "Canela"])
+        self.assertEqual(
+            shopping_list(
+                [flan, flan],
+                {"leche": "1 l"},
+                [
+                    ("Leche", "", "0,6 l", ""),
+                    ("azúcar", "", "1 kg", ""),
+                    ("huevo", "", "4", ""),
+                    ("limones", "", "1 kg", ""),
+                    ("sal", "", "", ""),
+                    ("canela", "", "poca", ""),
+                ],
+            ),
+            # 900 ml left to buy in 1 l packs; limones cannot be compared with 1 kg
+            ["8 huevos", "1 paquete de leche", "4 limones"],
+        )
+
+    def test_stock_without_quantity_covers_any_amount(self):
+        cake = Recipe("Bizcocho", ["250 g de harina", "3 huevos"])
+        self.assertEqual(shopping_list([cake], stock=[("harina", "", "", "")]), ["3 huevos"])
+
+    def test_stock_kind_matches_only_that_kind(self):
+        guiso = Recipe("Guiso", ["4 pechugas de pollo", "3 muslos de pollo", "15 g de tomate concentrado"])
+        stock = [("Pollo", "pechuga", "10", ""), ("Pollo", "muslo", "1", ""), ("Tomate", "concentrado", "5 g", "")]
+        self.assertEqual(shopping_list([guiso], stock=stock), ["2 muslos de pollo", "10 g de tomate concentrado"])
+
+    def test_stock_generic_ingredient_takes_all_kinds(self):
+        ensalada = Recipe("Ensalada", ["5 tomates"])
+        stock = [("Tomate", "pieza", "2", ""), ("Tomate", "pera", "1", "")]
+        self.assertEqual(shopping_list([ensalada], stock=stock), ["2 tomates"])
+
+    def test_stock_at_zero_is_not_in_stock(self):
+        guiso = Recipe("Guiso", ["2 huevos", "Sal"])
+        stock = [("huevo", "", "0", ""), ("sal", "", "0", "")]
+        self.assertEqual(shopping_list([guiso], stock=stock), ["2 huevos", "Sal"])
+
+    def test_food_below_desired_quantity_is_restocked(self):
+        stock = [
+            ("Harina", "", "300 g", "1 kg"),
+            ("Pollo", "Cuartos traseros", "0", "6"),
+            ("Leche", "", "0", "2 l"),
+            ("Aceite", "", "1 l", "1 l"),
+            ("Sal", "", "", "1 kg"),
+            ("Pimienta", "", "0", ""),
+        ]
+        self.assertEqual(
+            shopping_list([], {"leche": "1 l"}, stock),
+            ["700 g de Harina", "2 paquetes de Leche", "6 Pollo (Cuartos traseros)"],
+        )
+
+    def test_desired_quantity_with_recipe_buys_the_greater_need(self):
+        stock = [("Harina", "", "300 g", "1 kg")]
+        self.assertEqual(shopping_list([Recipe("A", ["200 g de harina"])], stock=stock), ["700 g de harina"])
+        self.assertEqual(shopping_list([Recipe("A", ["2 kg de harina"])], stock=stock), ["1,7 kg de harina"])
+
+    def test_desired_quantity_at_recipe_line_without_quantity_is_listed_once(self):
+        guiso = Recipe("Guiso", ["Sal"])
+        self.assertEqual(shopping_list([guiso], stock=[("sal", "", "0", "1 kg")]), ["Sal"])
+        self.assertEqual(shopping_list([guiso], stock=[("sal", "", "500 g", "1 kg")]), ["500 g de sal"])
+
+    def test_desired_quantity_of_one_kind_is_kept_when_all_kinds_cover_the_recipe(self):
+        ensalada = Recipe("Ensalada", ["5 tomates"])
+        stock = [("Tomate", "pieza", "0", "4"), ("Tomate", "pera", "10", "")]
+        self.assertEqual(shopping_list([ensalada], stock=stock), ["4 Tomate (pieza)"])
+
+    def test_use_stock(self):
+        guiso = Recipe("Guiso", ["Sal", "2 huevos", "1 kg de harina", "100 g de arroz"])
+        stock = [
+            ("Pimienta", "", "1 kg", ""),
+            ("sal", "", "", ""),
+            ("huevo", "", "5", "12"),
+            ("harina", "", "500 g", ""),
+            ("arroz", "", "mucho", ""),
+        ]
+        share, left = use_stock(guiso, stock)
+        self.assertEqual(share, 2.5 / 4)
+        self.assertEqual(
+            left,
+            [
+                ("Pimienta", "", "1 kg", ""),
+                ("sal", "", "", ""),
+                ("huevo", "", "3", "12"),
+                ("harina", "", "0 g", ""),
+                ("arroz", "", "mucho", ""),
+            ],
+        )
+        # What is left can be read back, and food used up no longer counts
+        self.assertEqual(use_stock(Recipe("Pan", ["10 g de harina", "4 huevos"]), left)[0], 0.375)
+        self.assertEqual(use_stock(Recipe("Vacía"), stock), (0, stock))
+
     def test_parse_size(self):
         self.assertEqual(parse_size("1 kg", "g"), 1000)
         self.assertEqual(parse_size("0,5 l", "ml"), 500)
@@ -168,6 +304,39 @@ class PackSizesTest(unittest.TestCase):
             self.assertEqual(PackSizes(Path(tmp)).all(), {"harina": "1 kg"})
 
 
+class InventoryTest(unittest.TestCase):
+    def test_set_and_remove_persist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inventory = Inventory(Path(tmp))
+            inventory.set("Huevos", "", "6")
+            inventory.set(" harina ", "", " 1 kg ")
+            inventory.set("sal")
+            inventory.set("huevo", "", "4")
+            inventory.set("Pollo", " pechuga ", "10")
+            inventory.set("pollo", "muslo", "2")
+            inventory.set("pollo", "Pechugas", "8")
+            inventory.remove("sal")
+            inventory.remove("pollo", "muslo")
+            self.assertEqual(
+                Inventory(Path(tmp)).all(),
+                [("harina", "", "1 kg", ""), ("huevo", "", "4", ""), ("pollo", "Pechugas", "8", "")],
+            )
+
+    def test_desired_is_kept_when_updating_the_quantity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inventory = Inventory(Path(tmp))
+            inventory.set("Huevos", "", "6", "12")
+            inventory.set("huevo", "", "0")
+            self.assertEqual(Inventory(Path(tmp)).all(), [("huevo", "", "0", "12")])
+            inventory.set("huevo", "", "0", "")
+            self.assertEqual(inventory.all(), [("huevo", "", "0", "")])
+
+    def test_file_without_desired_quantities_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "inventory.json").write_text('[{"name": "sal", "kind": "", "quantity": "1 kg"}]')
+            self.assertEqual(Inventory(Path(tmp)).all(), [("sal", "", "1 kg", "")])
+
+
 class UiSmokeTest(unittest.TestCase):
     def setUp(self):
         import os
@@ -183,7 +352,7 @@ class UiSmokeTest(unittest.TestCase):
         # Work on a copy so the planner never writes menu.json into data/
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp) / "data"
-            shutil.copytree(DEFAULT_DATA_DIR, data_dir, ignore=shutil.ignore_patterns("menu.json", "packs.json"))
+            shutil.copytree(DEFAULT_DATA_DIR, data_dir, ignore=shutil.ignore_patterns("menu.json", "packs.json", "inventory.json"))
             repository = RecipeRepository(data_dir)
             window = MainWindow(repository)
             page = window.recipes
@@ -255,6 +424,56 @@ class UiSmokeTest(unittest.TestCase):
             self.assertEqual(window.planner.shopping_list()[0], ["1 paquete de huevos"])
             table.item(0, 2).setText("1 kg")
             self.assertEqual(table.item(0, 2).background().color(), INVALID_COLOR)
+
+            # The food added to the inventory is left out of the shopping list
+            page = window.inventory_page
+            self.assertEqual(page.suggestions.stringList(), ["huevos"])
+            window.packs.set("huevos", "")
+            page.name.setText("huevos")
+            page.quantity.setText("2")
+            page._add()
+            self.assertEqual(page.table.rowCount(), 1)
+            self.assertEqual(window.planner.shopping_list()[0], ["4 huevos"])
+            page.table.item(0, 2).setText("6")
+            self.assertEqual(window.planner.shopping_list(), ([], 1))
+            page.table.item(0, 2).setText("muchos")
+            self.assertEqual(page.table.item(0, 2).background().color(), INVALID_COLOR)
+            page.name.setText("pollo")
+            page.kind.setText("pechuga")
+            page.quantity.setText("10")
+            page._add()
+            self.assertEqual(window.inventory.all()[1], ("pollo", "pechuga", "10", ""))
+            page.table.selectRow(1)
+            page._remove()
+            self.assertEqual(window.inventory.all(), [("huevos", "", "muchos", "")])
+            page.table.selectRow(0)
+            page._remove()
+            self.assertEqual((page.table.rowCount(), window.inventory.all()), (0, []))
+
+            # A food at 0 stays in the table, and goes on the list below its desired quantity
+            page.name.setText("sal")
+            page.quantity.setText("2")
+            page.desired.setText("1")
+            page._add()
+            page.table.item(0, 2).setText("0")
+            self.assertNotEqual(page.table.item(0, 2).background().color(), INVALID_COLOR)
+            self.assertEqual(window.inventory.all(), [("sal", "", "0", "1")])
+            self.assertIn("1 sal", window.planner.shopping_list()[0])
+            page.table.item(0, 3).setText("")
+            self.assertEqual(window.inventory.all(), [("sal", "", "0", "")])
+            self.assertEqual(page.table.rowCount(), 1)
+            page.table.selectRow(0)
+            page._remove()
+
+            # Generating fills the empty slots shown in the page, keeping the planned meals
+            repository.save(Recipe("Tortilla", ["2 huevos"], ["Cuajar."], category="Plato único"))
+            window.planner.refresh()
+            self.assertEqual(window.planner.generate(), 1)
+            self.assertEqual(window.planner.combos["Lunes", "Cena"].currentText(), "Tortilla")
+            self.assertEqual(combo.currentText(), "Flan de vainilla")
+            window.menu.remove_recipe("tortilla")
+            repository.delete("tortilla")
+            window.planner.refresh()
 
             repository.delete(new_slug)
             window.recipes.recipe_deleted.emit(new_slug)

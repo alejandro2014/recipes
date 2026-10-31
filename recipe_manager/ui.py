@@ -1,5 +1,6 @@
 """PySide6 main window, with pages to list, view, create, edit and delete
-recipes, to plan the weekly menu and to configure the ingredient pack sizes.
+recipes, to plan the weekly menu, to configure the ingredient pack sizes and
+to keep the inventory of the food at home.
 
 The interface is in Spanish, like the recipes themselves.
 """
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from recipe_manager.inventory import Inventory
+from recipe_manager.inventory_ui import InventoryPage
 from recipe_manager.model import CATEGORIES, MAIN_INGREDIENTS, Recipe, has_main_ingredient, serialize
 from recipe_manager.packs import PackSizes
 from recipe_manager.packs_ui import PacksPage
@@ -373,17 +376,20 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
         self.menu = WeeklyMenu(repository.data_dir)
         self.packs = PackSizes(repository.data_dir)
+        self.inventory = Inventory(repository.data_dir)
 
         self.recipes = RecipesPage(repository)
         self.recipes.recipe_saved.connect(self._recipe_saved)
         self.recipes.recipe_deleted.connect(self._recipe_deleted)
-        self.planner = PlannerPage(repository, self.menu, self.packs)
+        self.planner = PlannerPage(repository, self.menu, self.packs, self.inventory)
         self.packs_page = PacksPage(repository, self.packs)
+        self.inventory_page = InventoryPage(repository, self.inventory)
 
         tabs = QTabWidget()
         tabs.addTab(self.recipes, "Recetas")
         tabs.addTab(self.planner, "Menú semanal")
         tabs.addTab(self.packs_page, "Equivalencias")
+        tabs.addTab(self.inventory_page, "Inventario")
         self.setCentralWidget(tabs)
 
     def _recipe_saved(self, old_slug: str | None, slug: str) -> None:
@@ -391,8 +397,10 @@ class MainWindow(QMainWindow):
             self.menu.rename_recipe(old_slug, slug)
         self.planner.refresh()
         self.packs_page.refresh()
+        self.inventory_page.refresh()
 
     def _recipe_deleted(self, slug: str) -> None:
         self.menu.remove_recipe(slug)
         self.planner.refresh()
         self.packs_page.refresh()
+        self.inventory_page.refresh()

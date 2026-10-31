@@ -3,14 +3,28 @@
 It is stored as JSON in the data directory, e.g.:
 
     {"Lunes": {"Comida": "flan_huevo", "Cena": "tiramisu"}}
+
+The empty slots can be filled automatically, starting with the recipes that make
+the most of the food at home.
 """
 
 import json
 from pathlib import Path
 
+from recipe_manager.model import MAIN_DISHES, Recipe
+from recipe_manager.shopping import use_stock
+
 DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 MEALS = ["Desayuno", "Comida", "Cena"]
 MENU_FILE = "menu.json"
+BREAKFAST = "Desayuno"
+
+
+def _fits(recipe: Recipe, meal: str) -> bool:
+    """Tell if a recipe can be a whole meal: desserts, starters and the like are left out."""
+    if meal == BREAKFAST:
+        return recipe.category == BREAKFAST
+    return not recipe.category or recipe.category in MAIN_DISHES
 
 
 class WeeklyMenu:
@@ -36,6 +50,32 @@ class WeeklyMenu:
         if not meals:
             del self._slots[day]
         self._save()
+
+    def fill(self, recipes: dict[str, Recipe], stock: list[tuple[str, str, str, str]]) -> int:
+        """Fill the empty slots with recipes (by slug) not in the menu yet, and
+        return how many were filled.
+
+        Each slot takes the recipe best covered by the food left at home, after
+        what the earlier meals use up, so the recipes that need buying come last.
+        Slots stay empty if no recipe is left for them.
+        """
+        planned = [slug for slug in self.slugs() if slug in recipes]
+        for slug in planned:
+            _, stock = use_stock(recipes[slug], stock)
+        filled = 0
+        for day in DAYS:
+            for meal in MEALS:
+                if self.get(day, meal) in recipes:
+                    continue
+                options = [s for s, recipe in recipes.items() if s not in planned and _fits(recipe, meal)]
+                if not options:
+                    continue
+                slug = max(options, key=lambda s: use_stock(recipes[s], stock)[0])
+                _, stock = use_stock(recipes[slug], stock)
+                self.set(day, meal, slug)
+                planned.append(slug)
+                filled += 1
+        return filled
 
     def rename_recipe(self, old_slug: str, new_slug: str) -> None:
         for meals in self._slots.values():
